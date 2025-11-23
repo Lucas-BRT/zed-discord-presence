@@ -26,6 +26,9 @@ use discord_rich_presence::{
 };
 use tracing::{debug, error, info, instrument};
 
+const DEFAULT_MAX_CONECTION_ATTEMPTS: u8 = 5;
+const DEFAULT_RECONNECT_DELAY: Duration = Duration::from_secs(30);
+
 use crate::{error::Result, util};
 
 #[derive(Debug)]
@@ -65,11 +68,37 @@ impl Discord {
     pub async fn connect(&self) -> Result<()> {
         debug!("Connecting to Discord IPC");
 
+        info!("alskdjlaksdjlkadsj");
+        let mut attemps = 0;
         let mut client = self.get_client().await?;
-        client.connect().map_err(|e| {
-            error!("Failed to connect to Discord IPC: {}", e);
-            crate::error::PresenceError::Discord(format!("Failed to connect to Discord IPC: {e}"))
-        })?;
+        loop {
+            match client.connect().map_err(|e| {
+                error!("Failed to connect to Discord IPC: {}", e);
+                crate::error::PresenceError::Discord(format!(
+                    "Failed to connect to Discord IPC: {e}"
+                ))
+            }) {
+                Ok(()) => break,
+                Err(err) => {
+                    attemps += 1;
+                    if attemps >= DEFAULT_MAX_CONECTION_ATTEMPTS {
+                        error!(
+                            "Exceeded maximum connection attempts ({}) to Discord IPC",
+                            DEFAULT_MAX_CONECTION_ATTEMPTS
+                        );
+                        return Err(err);
+                    }
+
+                    info!(
+                        "Retrying connection to Discord IPC in {} seconds... (Attempt {}/{})",
+                        DEFAULT_RECONNECT_DELAY.as_secs(),
+                        attemps,
+                        DEFAULT_MAX_CONECTION_ATTEMPTS
+                    );
+                    tokio::time::sleep(DEFAULT_RECONNECT_DELAY).await;
+                }
+            }
+        }
 
         info!("Successfully connected to Discord IPC");
         Ok(())
